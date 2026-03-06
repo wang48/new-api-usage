@@ -1,68 +1,61 @@
 ---
 name: new-api-usage
-description: Query usage statistics and quota from new-api deployments. Automatically detects configured new-api providers in OpenClaw config. Use when the user wants to check API key usage, token consumption, quota details, balance, or model usage statistics. Trigger on keywords like "new-api usage", "API用量", "查询用量", "token使用情况", "余额查询", "剩余额度", "供应商用量".
+description: Query usage statistics and quota from a user-specified new-api endpoint. Use when the user asks to check API quota, usage records, token consumption, model-level usage, or remaining balance. Requires explicit --base-url and --key input.
 ---
 
 # New API Usage Query
 
-Query usage statistics and quota balance from new-api deployments. Auto-detects configured providers.
+Query quota and usage from a new-api deployment with explicit inputs.
 
-## Auto-Detection
+## Safety Rules
 
-The skill reads OpenClaw config (`~/.openclaw/openclaw.json`) to find providers with `baseUrl` matching new-api patterns:
-- Contains `new-api`
-- Or matches user-configured new-api hosts
-
-Uses the corresponding API key from auth profiles.
+- Require explicit `--base-url` and `--key`; never auto-read local config or keychain.
+- Never print the full API key in output.
+- Only perform read-only GET requests to usage endpoints.
+- If the endpoint is unknown, ask user to confirm before querying.
 
 ## Usage
 
 ```bash
-# Auto-detect new-api providers and query all
-uv run python scripts/query_usage.py --auto
+# Summary (today's records only)
+uv run python scripts/query_usage.py \
+  --base-url https://your-new-api.example.com \
+  --key sk-xxxxx
 
-# Query specific key
-uv run python scripts/query_usage.py --key sk-xxxxx
+# Quota only
+uv run python scripts/query_usage.py \
+  --base-url https://your-new-api.example.com \
+  --key sk-xxxxx \
+  --quota-only
 
-# Query specific provider
-uv run python scripts/query_usage.py --provider custom-custom36
+# Model aggregation with all records
+uv run python scripts/query_usage.py \
+  --base-url https://your-new-api.example.com \
+  --key sk-xxxxx \
+  --all-records \
+  --by-model
 ```
 
 ## Options
 
 | Option | Description |
 |--------|-------------|
-| `--auto` | Auto-detect new-api providers from OpenClaw config |
-| `--provider` | Query specific provider by ID |
-| `--key` | Manual API key (overrides auto-detection) |
-| `--base-url` | Custom base URL (for manual query) |
-| `--today` | Show only today's records (default behavior) |
-| `--all-records` | Show all records (not just today) |
-| `--limit N` | Limit records (default: 100) |
-| `--by-model` | Group statistics by model |
-| `--quota-only` | Only show balance/quota |
-| `--json` | Output raw JSON |
-
-## Default Behavior
-
-When no options specified with `--auto`:
-1. Shows today's records only
-2. Limits to 100 most recent calls
-3. Displays balance + usage summary
+| `--base-url` | Required. new-api base URL, e.g. `https://xxx.com` |
+| `--key` | Required. API key |
+| `--today` | Only keep today's records (default) |
+| `--all-records` | Disable today's filter |
+| `--limit N` | Number of records shown in table (default: 100) |
+| `--by-model` | Show grouped usage by model |
+| `--quota-only` | Only show quota/balance |
+| `--json` | Print raw JSON payload |
+| `--timeout` | HTTP timeout seconds (default: 15) |
 
 ## API Endpoints
 
-- **Quota**: `GET /api/usage/token/` (Bearer auth)
-- **Usage Log**: `GET /api/log/token?key={api_key}` (Bearer auth)
+- `GET /api/usage/token/`
+- `GET /api/log/token?key={api_key}`
 
-## Response Fields
+## Notes
 
-| Field | Description |
-|-------|-------------|
-| `total_granted` | Total quota ($1 = 500000 units) |
-| `total_used` | Quota consumed |
-| `total_available` | Remaining quota |
-| `model_name` | Model used |
-| `quota` | Call quota cost |
-| `prompt_tokens` | Input tokens |
-| `completion_tokens` | Output tokens |
+- Quota conversion in script uses `500000 quota = $1`.
+- `--today` uses local timezone date boundaries.

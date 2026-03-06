@@ -1,0 +1,84 @@
+name: Publish Skill To ClawHub
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver version, e.g. 1.2.3"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install ClawHub CLI
+        run: npm install -g clawhub
+
+      - name: Resolve Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $VERSION"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Skill Slug
+        id: skill
+        shell: bash
+        run: |
+          RAW_NAME="$(sed -n '/^---$/,/^---$/{s/^name:[[:space:]]*//p}' SKILL.md | head -n 1)"
+          if [[ -z "$RAW_NAME" ]]; then
+            echo "Could not parse 'name' from SKILL.md frontmatter"
+            exit 1
+          fi
+
+          SLUG="$(echo "$RAW_NAME" | tr '[:upper:]' '[:lower:]' | tr ' _' '-' | tr -cd 'a-z0-9-')"
+          if [[ -z "$SLUG" ]]; then
+            echo "Derived slug is empty"
+            exit 1
+          fi
+
+          echo "name=$RAW_NAME" >> "$GITHUB_OUTPUT"
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "$CLAWHUB_TOKEN" ]]; then
+            echo "Missing secret: CLAWHUB_TOKEN"
+            exit 1
+          fi
+
+          clawhub login --token "$CLAWHUB_TOKEN"
+
+          clawhub publish . \
+            --name "${{ steps.skill.outputs.name }}" \
+            --slug "${{ steps.skill.outputs.slug }}" \
+            --version "${{ steps.version.outputs.version }}" \
+            --no-input
